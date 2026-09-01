@@ -101,6 +101,13 @@ PRIVATE
     ayugram::lib_icu
 )
 
+option(AYU_WITH_PYTHON "Embed CPython for the exteraGram-compatible plugins engine" ON)
+if (AYU_WITH_PYTHON)
+    find_package(Python3 3.11 COMPONENTS Interpreter Development REQUIRED)
+    target_link_libraries(Telegram PRIVATE Python3::Python)
+    target_compile_definitions(Telegram PRIVATE AYU_WITH_PYTHON=1)
+endif()
+
 set(ayugram_files
         ayu/ayu_worker.cpp
         ayu/ayu_worker.h
@@ -118,6 +125,9 @@ set(ayugram_files
         ayu/plugins/plugin_manager.h
         ayu/plugins/plugin_engine.cpp
         ayu/plugins/plugin_engine.h
+        ayu/plugins/plugin_python_modules.cpp
+        ayu/plugins/plugin_python_modules.h
+        ayu/plugins/plugin_python_host.cpp
         ayu/utils/ayu_mapper.cpp
         ayu/utils/ayu_mapper.h
         ayu/utils/qt_key_modifiers_extended.h

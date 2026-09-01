@@ -85,6 +85,11 @@ jobs:
             ${{ env.BUILD_ROOT }}\Libraries\patches
           key: tbuild-libs-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py', 'tdesktop/Telegram/build/qt_version.py') }}
 
+      - name: Set up Python 3.11 (plugins engine)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -147,6 +152,17 @@ jobs:
           Get-ChildItem $out -File |
             Where-Object { @(".pdb", ".obj", ".lib", ".exp", ".ilk", ".iobj", ".ipdb") -notcontains $_.Extension } |
             Copy-Item -Destination $staging
+
+          # Bundle the CPython 3.11 runtime for the plugins engine.
+          $pyRoot = & python -c "import sys; print(sys.base_prefix)"
+          "python root: $pyRoot"
+          Copy-Item "$pyRoot\python311.dll" $staging
+          Copy-Item "$pyRoot\vcruntime140.dll" $staging -ErrorAction SilentlyContinue
+          if (Test-Path "$pyRoot\Lib") {
+            Compress-Archive -Path "$pyRoot\Lib\*" -DestinationPath "$staging\python311.zip"
+          }
+          "python311.zip`n.`nimport site" | Out-File "$staging\python311._pth" -Encoding ascii
+
           Compress-Archive -Path "$staging\*" -DestinationPath "$env:BUILD_ROOT\AyuGram-win64.zip"
           "zip size: $([math]::Round((Get-Item "$env:BUILD_ROOT\AyuGram-win64.zip").Length / 1MB)) MB"
 

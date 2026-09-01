@@ -108,6 +108,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // AyuGram includes
 #include "ayu/ayu_settings.h"
 #include "ayu/ayu_worker.h"
+#include "ayu/plugins/plugin_engine.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "ayu/features/forward/ayu_forward.h"
 
@@ -4662,6 +4663,19 @@ void ApiWrap::sendMessage(
 	const auto history = message.action.history;
 	const auto peer = history->peer;
 	auto &textWithTags = message.textWithTags;
+
+	{
+		auto cancelled = false;
+		const auto hooked = AyuPlugins::PluginEngine::instance()
+			.sendMessageHook(textWithTags.text, cancelled);
+		if (cancelled) {
+			return;
+		}
+		if (hooked != textWithTags.text) {
+			textWithTags.text = hooked;
+			textWithTags.tags = TextWithTags::Tags();
+		}
+	}
 
 	auto action = message.action;
 	action.generateLocal = true;

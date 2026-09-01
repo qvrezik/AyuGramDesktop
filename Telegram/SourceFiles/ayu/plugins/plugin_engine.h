@@ -21,9 +21,20 @@ public:
 	void initialize();
 	void shutdown();
 
+	// Calls on_send_message_hook on every loaded plugin. Returns the text
+	// to actually send (possibly modified, or empty to cancel) or the
+	// original text when no plugin interfered.
+	QString sendMessageHook(const QString &text, bool &cancelled);
+
 	bool isInitialized() const;
 
 private:
+	PluginEngine();
+	~PluginEngine();
+
+	class Impl;
+	Impl *_impl = nullptr;
+
 	bool _initialized = false;
 
 };
