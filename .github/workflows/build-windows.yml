@@ -67,7 +67,16 @@ jobs:
         shell: cmd
         run: |
           cd /d "%BUILD_ROOT%\tdesktop"
-          cmake --build out --config Release --target Telegram -- -m:4
+          cmake --build out --config Release --target Telegram -- -m:4 > "%BUILD_ROOT%\build_log.txt" 2>&1
+          type "%BUILD_ROOT%\build_log.txt"
+
+      - name: Upload build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ env.BUILD_ROOT }}\build_log.txt
+          retention-days: 7
 
       - name: Package
         shell: pwsh
