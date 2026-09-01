@@ -143,12 +143,43 @@ class BasePlugin:
     def _unsupported(self, name):
         self.log("%s() is not supported on AyuGram Desktop yet" % name)
 
-    def add_menu_item(self, *args, **kwargs):
-        self._unsupported("add_menu_item")
+    def add_menu_item(self, item=None, **kwargs):
+        """Register a menu entry. MESSAGE_CONTEXT_MENU and
+        PROFILE_ACTION_MENU items are routed to their desktop analogs;
+        other menu types are ignored with a log entry."""
+        if item is not None:
+            data = item
+        else:
+            data = kwargs
+        if data is None:
+            return None
+        menu_type = getattr(data, "menu_type", None)
+        if menu_type is None:
+            menu_type = kwargs.get("menu_type", 0)
+        text = getattr(data, "text", None) or kwargs.get("text", "")
+        if not text:
+            return None
+        if _host is not None and hasattr(_host, "add_menu_item"):
+            handle = _host.add_menu_item(
+                self._plugin_id,
+                int(menu_type),
+                str(text),
+                str(getattr(data, "subtext", "") or ""),
+                str(getattr(data, "icon", "") or ""),
+                int(getattr(data, "priority", 0) or 0),
+            )
+            if handle:
+                callback = getattr(data, "on_click", None)
+                if callback is None:
+                    callback = kwargs.get("on_click")
+                if callback is not None and hasattr(_host, "bind_menu_callback"):
+                    _host.bind_menu_callback(handle, callback)
+                return handle
         return None
 
-    def remove_menu_item(self, *args, **kwargs):
-        pass
+    def remove_menu_item(self, handle):
+        if handle and _host is not None and hasattr(_host, "remove_menu_item"):
+            _host.remove_menu_item(int(handle))
 
     def add_hook(self, *args, **kwargs):
         self._unsupported("add_hook")

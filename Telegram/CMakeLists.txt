@@ -125,6 +125,8 @@ set(ayugram_files
         ayu/plugins/plugin_manager.h
         ayu/plugins/plugin_engine.cpp
         ayu/plugins/plugin_engine.h
+        ayu/plugins/plugin_hook_router.cpp
+        ayu/plugins/plugin_hook_router.h
         ayu/plugins/plugin_python_modules.cpp
         ayu/plugins/plugin_python_modules.h
         ayu/plugins/plugin_python_host.cpp

@@ -13,6 +13,7 @@
 
 #include <Python.h>
 
+#include "ayu/plugins/plugin_hook_router.h"
 #include "ayu/plugins/plugin_manager.h"
 #include "ayu/libs/json.hpp"
 #include "logs.h"
@@ -20,11 +21,38 @@
 
 #include <QDir>
 #include <QFile>
+#include <map>
 
 using json = nlohmann::json;
 
 namespace AyuPlugins {
+
 namespace {
+
+// Keeps python callbacks for menu items alive, keyed by the router handle.
+std::map<quint64, PyObject*> menuCallbacks;
+bool menuCallbacksValid = false; // set false right before finalization
+
+} // namespace
+
+void markMenuCallbacksAlive() {
+	menuCallbacksValid = true;
+}
+
+void releaseMenuCallbacks() {
+	menuCallbacksValid = false;
+	for (auto &entry : menuCallbacks) {
+		Py_XDECREF(entry.second);
+	}
+	menuCallbacks.clear();
+}
+
+namespace {
+
+PyObject *menuCallback(quint64 handle) {
+	const auto it = menuCallbacks.find(handle);
+	return (it == menuCallbacks.end()) ? nullptr : it->second;
+}
 
 bool validId(const QString &id) {
 	if (id.isEmpty() || id.size() > 64) {
@@ -163,6 +191,68 @@ PyObject *host_set_all_settings(PyObject *, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+PyObject *host_add_menu_item(PyObject *, PyObject *args) {
+	const char *id = nullptr;
+	int menuType = 0;
+	const char *text = nullptr;
+	const char *subtext = nullptr;
+	const char *icon = nullptr;
+	int priority = 0;
+	if (!PyArg_ParseTuple(
+			args,
+			"sisssi",
+			&id,
+			&menuType,
+			&text,
+			&subtext,
+			&icon,
+			&priority)) {
+		return nullptr;
+	}
+	auto item = HookRouter::MenuItem();
+	item.pluginId = QString::fromUtf8(id);
+	item.menuType = menuType;
+	item.text = QString::fromUtf8(text);
+	item.subtext = QString::fromUtf8(subtext);
+	item.icon = QString::fromUtf8(icon);
+	item.priority = priority;
+	const auto handle = HookRouter::instance().addMenuItem(item);
+	return PyLong_FromUnsignedLongLong(handle);
+}
+
+PyObject *host_bind_menu_callback(PyObject *, PyObject *args) {
+	unsigned long long handle = 0;
+	PyObject *callback = nullptr;
+	if (!PyArg_ParseTuple(args, "KO", &handle, &callback)) {
+		return nullptr;
+	}
+	if (!PyCallable_Check(callback)) {
+		PyErr_SetString(PyExc_TypeError, "callback must be callable");
+		return nullptr;
+	}
+	const auto it = menuCallbacks.find(handle);
+	if (it != menuCallbacks.end()) {
+		Py_DECREF(it->second);
+	}
+	Py_INCREF(callback);
+	menuCallbacks[handle] = callback;
+	Py_RETURN_NONE;
+}
+
+PyObject *host_remove_menu_item(PyObject *, PyObject *args) {
+	unsigned long long handle = 0;
+	if (!PyArg_ParseTuple(args, "K", &handle)) {
+		return nullptr;
+	}
+	HookRouter::instance().removeMenuItem(handle);
+	const auto it = menuCallbacks.find(handle);
+	if (it != menuCallbacks.end()) {
+		Py_DECREF(it->second);
+		menuCallbacks.erase(it);
+	}
+	Py_RETURN_NONE;
+}
+
 PyMethodDef hostMethods[] = {
 	{"log", host_log, METH_VARARGS, "Write a message to the AyuGram log."},
 	{"is_running", host_is_running, METH_VARARGS, "Whether the plugin is enabled."},
@@ -170,6 +260,9 @@ PyMethodDef hostMethods[] = {
 	{"set_setting", host_set_setting, METH_VARARGS, "Write a raw JSON setting value."},
 	{"get_all_settings", host_get_all_settings, METH_VARARGS, "Read all settings as JSON."},
 	{"set_all_settings", host_set_all_settings, METH_VARARGS, "Replace all settings from JSON."},
+	{"add_menu_item", host_add_menu_item, METH_VARARGS, "Register a context menu item."},
+	{"bind_menu_callback", host_bind_menu_callback, METH_VARARGS, "Bind a python callback to a menu item handle."},
+	{"remove_menu_item", host_remove_menu_item, METH_VARARGS, "Remove a registered menu item."},
 	{nullptr, nullptr, 0, nullptr},
 };
 
@@ -189,6 +282,48 @@ PyModuleDef hostModule = {
 
 PyObject *pyModuleInitHost() {
 	return PyModule_Create(&hostModule);
+}
+
+bool invokeMenuCallback(
+		quint64 token,
+		const std::map<QString, QString> &context) {
+	if (menuCallbacksValid && Py_IsInitialized()) {
+		const auto callback = menuCallback(token);
+		if (callback) {
+			auto dict = PyDict_New();
+			for (const auto &entry : context) {
+				const auto key = PyUnicode_FromString(
+					entry.first.toStdString().c_str());
+				const auto value = PyUnicode_FromString(
+					entry.second.toStdString().c_str());
+				PyDict_SetItem(dict, key, value);
+				Py_DECREF(key);
+				Py_DECREF(value);
+			}
+			const auto args = PyTuple_Pack(1, dict);
+			Py_DECREF(dict);
+			const auto result = PyObject_CallObject(callback, args);
+			Py_DECREF(args);
+			if (!result) {
+				LOG(("Plugins engine: menu callback failed"));
+				if (PyErr_Occurred()) {
+					PyErr_Print();
+				}
+				return false;
+			}
+			Py_DECREF(result);
+			return true;
+		}
+	}
+	return false;
+}
+
+void releaseMenuCallbacks() {
+	menuCallbacksValid = false;
+	for (auto &entry : menuCallbacks) {
+		Py_XDECREF(entry.second);
+	}
+	menuCallbacks.clear();
 }
 
 } // namespace AyuPlugins

@@ -7,6 +7,7 @@
 // Copyright @Radolyn, 2026 (base), plugin engine extensions 2026
 #include "ayu/plugins/plugin_engine.h"
 
+#include "ayu/plugins/plugin_hook_router.h"
 #include "ayu/plugins/plugin_manager.h"
 #include "ayu/plugins/plugin_python_modules.h"
 #include "logs.h"
@@ -14,6 +15,7 @@
 #include <QDir>
 #include <QFile>
 
+#include <map>
 #include <vector>
 
 #ifdef AYU_WITH_PYTHON
@@ -24,6 +26,13 @@ extern "C" PyObject *PyInit__ayu_host();
 #endif
 
 namespace AyuPlugins {
+
+// Defined in plugin_python_host.cpp.
+void markMenuCallbacksAlive();
+void releaseMenuCallbacks();
+bool invokeMenuCallback(
+	quint64 token,
+	const std::map<QString, QString> &context);
 
 #ifdef AYU_WITH_PYTHON
 
@@ -243,6 +252,10 @@ void PluginEngine::initialize() {
 		return;
 	}
 	Py_InitializeEx(0);
+	markMenuCallbacksAlive();
+
+	HookRouter::instance().setContextInvoker(
+		&invokeMenuCallback);
 
 	_impl = new Impl();
 
@@ -316,11 +329,13 @@ void PluginEngine::shutdown() {
 	if (_impl) {
 		for (const auto &entry : _impl->loaded) {
 			callHook(entry.instance, "on_plugin_unload");
+			HookRouter::instance().clearPlugin(entry.id);
 		}
 		delete _impl;
 		_impl = nullptr;
 	}
 	if (Py_IsInitialized()) {
+		releaseMenuCallbacks();
 		Py_FinalizeEx();
 	}
 #endif

@@ -117,6 +117,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // AyuGram includes
 #include "ayu/ayu_settings.h"
 #include "ayu/features/forward/ayu_forward.h"
+#include "ayu/plugins/plugin_hook_router.h"
 #include "ayu/ui/context_menu/context_menu.h"
 
 
@@ -1121,6 +1122,36 @@ void AddTopMessageActions(
 	AddPinMessageAction(menu, request, list);
 }
 
+void AddPluginMessageActions(
+		not_null<Ui::PopupMenu*> menu,
+		HistoryItem *item) {
+	if (!item) {
+		return;
+	}
+	const auto &items = AyuPlugins::HookRouter::instance()
+		.messageMenuItems();
+	if (items.empty()) {
+		return;
+	}
+	for (const auto &entry : items) {
+		const auto token = entry.registration;
+		const auto text = entry.text;
+		auto context = std::map<QString, QString>();
+		context[u"messageId"_q] = QString::number(item->id.bare);
+		context[u"messageText"_q] = item->text();
+		context[u"dialogId"_q] = QString::number(
+			item->history()->peer->id.value);
+		const auto subtext = entry.subtext;
+		menu->addAction(
+			text,
+			[token, context] {
+				AyuPlugins::HookRouter::instance().invoke(
+					token,
+					context);
+			});
+	}
+}
+
 void AddMessageActions(
 		not_null<Ui::PopupMenu*> menu,
 		const ContextMenuRequest &request,
@@ -1133,6 +1164,7 @@ void AddMessageActions(
 		AyuUi::AddRepeatMessageAction(menu, request.item, context);
 		AyuUi::AddMessageDetailsAction(menu, request.item);
 	}
+	AddPluginMessageActions(menu, request.item);
 
 	AddPostLinkAction(menu, request);
 	AddForwardAction(menu, request, list);
