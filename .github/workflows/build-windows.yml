@@ -75,6 +75,16 @@ jobs:
           Set-Content $v $out
           "variables.cmake patched: $patched"
 
+      - name: Cache prepared libraries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.BUILD_ROOT }}\ThirdParty
+            ${{ env.BUILD_ROOT }}\Libraries\win64\local
+            ${{ env.BUILD_ROOT }}\Libraries\win64\cache_keys
+            ${{ env.BUILD_ROOT }}\Libraries\patches
+          key: tbuild-libs-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py', 'tdesktop/Telegram/build/qt_version.py') }}
+
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -102,24 +112,40 @@ jobs:
           cmake --build out --config Release --target Telegram -- -m:4 > "%BUILD_ROOT%\build_log.txt" 2>&1
           type "%BUILD_ROOT%\build_log.txt"
 
-      - name: Upload build log (on failure)
-        if: failure()
+      - name: Upload build log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
           path: ${{ env.BUILD_ROOT }}\build_log.txt
           retention-days: 7
+          if-no-files-found: ignore
 
       - name: Package
         shell: pwsh
         run: |
-          $out = "$env:BUILD_ROOT\tdesktop\out\Release"
-          if (-not (Test-Path $out)) { throw "no output dir: $out" }
+          $root = "$env:BUILD_ROOT\tdesktop\out"
+          "=== out dir top level ==="
+          if (Test-Path $root) {
+            Get-ChildItem $root | ForEach-Object { $_.Name }
+          } else {
+            "out dir missing: $root"
+            "=== tdesktop top-level dirs ==="
+            Get-ChildItem "$env:BUILD_ROOT\tdesktop" -Directory | ForEach-Object { $_.Name }
+          }
+          "=== exe files under out ==="
+          $exes = @(Get-ChildItem $root -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue)
+          $exes | ForEach-Object { $_.FullName }
+          if (-not $exes) { throw "no exe produced" }
+
+          $main = @($exes | Where-Object { $_.Name -imatch "AyuGram|Telegram" })[0]
+          $out = $main.DirectoryName
+          "=== packaging from: $out ==="
           Get-ChildItem $out -File | ForEach-Object { $_.Name }
           $staging = "$env:BUILD_ROOT\package"
           New-Item -ItemType Directory -Force $staging | Out-Null
           Get-ChildItem $out -File |
-            Where-Object { $_.Extension -notin ".pdb", ".obj", ".lib", ".exp" } |
+            Where-Object { @(".pdb", ".obj", ".lib", ".exp", ".ilk", ".iobj", ".ipdb") -notcontains $_.Extension } |
             Copy-Item -Destination $staging
           Compress-Archive -Path "$staging\*" -DestinationPath "$env:BUILD_ROOT\AyuGram-win64.zip"
           "zip size: $([math]::Round((Get-Item "$env:BUILD_ROOT\AyuGram-win64.zip").Length / 1MB)) MB"
