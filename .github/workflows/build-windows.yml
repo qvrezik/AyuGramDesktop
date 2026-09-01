@@ -123,59 +123,78 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: ${{ env.BUILD_ROOT }}\build_log.txt
+          path: |
+            ${{ env.BUILD_ROOT }}\build_log.txt
+            ${{ env.BUILD_ROOT }}\package_out.txt
           retention-days: 7
           if-no-files-found: ignore
 
       - name: Package
         shell: pwsh
         run: |
-          $root = "$env:BUILD_ROOT\tdesktop\out"
-          "=== out dir top level ==="
-          if (Test-Path $root) {
-            Get-ChildItem $root | ForEach-Object { $_.Name }
-          } else {
-            "out dir missing: $root"
-            "=== tdesktop top-level dirs ==="
-            Get-ChildItem "$env:BUILD_ROOT\tdesktop" -Directory | ForEach-Object { $_.Name }
-          }
-          "=== exe files under out ==="
-          $exes = @(Get-ChildItem $root -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue)
-          $exes | ForEach-Object { $_.FullName }
-          if (-not $exes) { throw "no exe produced" }
+          $log = "$env:BUILD_ROOT\package_out.txt"
+          Start-Transcript -Path $log -Force | Out-Null
+          try {
 
-          $main = @($exes | Where-Object { $_.Name -imatch "AyuGram|Telegram" })[0]
-          $out = $main.DirectoryName
-          "=== packaging from: $out ==="
-          Get-ChildItem $out -File | ForEach-Object { $_.Name }
-          $staging = "$env:BUILD_ROOT\package"
-          New-Item -ItemType Directory -Force $staging | Out-Null
-          Get-ChildItem $out -File |
-            Where-Object { @(".pdb", ".obj", ".lib", ".exp", ".ilk", ".iobj", ".ipdb") -notcontains $_.Extension } |
-            Copy-Item -Destination $staging
+            $root = "$env:BUILD_ROOT\tdesktop\out"
+            "=== out dir top level ==="
+            if (Test-Path $root) {
+              Get-ChildItem $root | ForEach-Object { $_.Name }
+            } else {
+              "out dir missing: $root"
+              Get-ChildItem "$env:BUILD_ROOT\tdesktop" -Directory | ForEach-Object { $_.Name }
+            }
+            "=== exe files under out ==="
+            $exes = @(Get-ChildItem $root -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue)
+            $exes | ForEach-Object { $_.FullName }
+            if (-not $exes) { throw "no exe produced" }
 
-          # Bundle the CPython 3.11 runtime for the plugins engine.
-          $pyExe = Join-Path $env:pythonLocation "python.exe"
-          if (-not (Test-Path $pyExe)) {
-            $pyExe = (Get-Command python -ErrorAction SilentlyContinue).Source
-          }
-          "python exe: $pyExe"
-          if (-not $pyExe) { throw "python not found" }
-          $pyRoot = & $pyExe -c "import sys; print(sys.base_prefix)"
-          "python root: $pyRoot"
-          if (-not (Test-Path "$pyRoot\python311.dll")) {
-            throw "python311.dll not found under '$pyRoot'"
-          }
-          Copy-Item "$pyRoot\python311.dll" $staging
-          Copy-Item "$pyRoot\vcruntime140.dll" $staging -ErrorAction SilentlyContinue
-          if (Test-Path "$pyRoot\Lib") {
-            "zipping python stdlib..."
-            & $pyExe -c "import shutil; shutil.make_archive(r'$staging\python311', 'zip', r'$pyRoot\Lib')"
-          }
-          "python311.zip`n.`nimport site" | Out-File "$staging\python311._pth" -Encoding ascii
+            # Prefer AyuGram.exe / Telegram.exe explicitly; fall back to the
+            # largest exe (the app), never an auxiliary tool.
+            $main = @($exes | Where-Object { $_.BaseName -in @("AyuGram", "Telegram") })[0]
+            if (-not $main) {
+              $main = @($exes | Sort-Object Length -Descending)[0]
+              "main exe not found by name, using largest: $($main.FullName)"
+            }
+            $out = $main.DirectoryName
+            "=== packaging from: $out ==="
+            $files = @(Get-ChildItem $out -File)
+            $files | ForEach-Object { "{0}  {1:N0} b" -f $_.Name, $_.Length }
+            if (-not ($files | Where-Object { $_.Name -eq $main.Name })) {
+              throw "main exe vanished"
+            }
+            $staging = "$env:BUILD_ROOT\package"
+            New-Item -ItemType Directory -Force $staging | Out-Null
+            $files |
+              Where-Object { @(".pdb", ".obj", ".lib", ".exp", ".ilk", ".iobj", ".ipdb") -notcontains $_.Extension } |
+              Copy-Item -Destination $staging
 
-          Compress-Archive -Path "$staging\*" -DestinationPath "$env:BUILD_ROOT\AyuGram-win64.zip"
-          "zip size: $([math]::Round((Get-Item "$env:BUILD_ROOT\AyuGram-win64.zip").Length / 1MB)) MB"
+            # Bundle the CPython 3.11 runtime for the plugins engine.
+            $pyExe = Join-Path $env:pythonLocation "python.exe"
+            if (-not (Test-Path $pyExe)) {
+              $pyExe = (Get-Command python -ErrorAction SilentlyContinue).Source
+            }
+            "python exe: $pyExe"
+            if (-not $pyExe) { throw "python not found" }
+            $pyRoot = & $pyExe -c "import sys; print(sys.base_prefix)"
+            "python root: $pyRoot"
+            if (-not (Test-Path "$pyRoot\python311.dll")) {
+              throw "python311.dll not found under '$pyRoot'"
+            }
+            Copy-Item "$pyRoot\python311.dll" $staging
+            Copy-Item "$pyRoot\vcruntime140.dll" $staging -ErrorAction SilentlyContinue
+            if (Test-Path "$pyRoot\Lib") {
+              "zipping python stdlib..."
+              & $pyExe -c "import shutil; shutil.make_archive(r'$staging\python311', 'zip', r'$pyRoot\Lib')"
+            }
+            "python311.zip`n.`nimport site" | Out-File "$staging\python311._pth" -Encoding ascii
+
+            Compress-Archive -Path "$staging\*" -DestinationPath "$env:BUILD_ROOT\AyuGram-win64.zip"
+            "zip size: $([math]::Round((Get-Item "$env:BUILD_ROOT\AyuGram-win64.zip").Length / 1MB)) MB"
+
+          } finally {
+            Stop-Transcript | Out-Null
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
