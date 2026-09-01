@@ -43,6 +43,38 @@ jobs:
           "BUILD_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "Using $root"
 
+      - name: Patch cmake submodule (MSVC PDB workaround)
+        shell: pwsh
+        run: |
+          $f = "tdesktop\cmake\options_win.cmake"
+          $lines = Get-Content $f
+          $patched = $false
+          $out = foreach ($line in $lines) {
+            if (-not $patched -and $line -match "^\s*/MP\s+#") {
+              $line
+              ($line -replace "/MP", "/FS")
+              $patched = $true
+            } else { $line }
+          }
+          Set-Content $f $out
+          "options_win.cmake patched: $patched"
+
+          $v = "tdesktop\cmake\variables.cmake"
+          $lines = Get-Content $v
+          $patched = $false
+          $prevReplaced = $false
+          $out = foreach ($line in $lines) {
+            if ($line -match "CONFIG:Debug.*ProgramDatabase") {
+              $patched = $true; $prevReplaced = $true
+              '    "$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>$<$<CONFIG:Release,MinSizeRel>:Embedded>"'
+            } elseif ($prevReplaced -and $line -match 'CACHE STRING ""') {
+              $prevReplaced = $false
+              '    CACHE STRING "" FORCE)'
+            } else { $line }
+          }
+          Set-Content $v $out
+          "variables.cmake patched: $patched"
+
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
