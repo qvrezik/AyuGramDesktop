@@ -46,6 +46,7 @@ jobs:
       - name: Patch cmake submodule (MSVC PDB workaround)
         shell: pwsh
         run: |
+          # 1. options_win.cmake: /FS after /MP (PDB API call failures)
           $f = "tdesktop\cmake\options_win.cmake"
           $lines = Get-Content $f
           $patched = $false
@@ -59,6 +60,7 @@ jobs:
           Set-Content $f $out
           "options_win.cmake patched: $patched"
 
+          # 2. variables.cmake: PDB format for non-Debug configs
           $v = "tdesktop\cmake\variables.cmake"
           $lines = Get-Content $v
           $patched = $false
@@ -74,6 +76,17 @@ jobs:
           }
           Set-Content $v $out
           "variables.cmake patched: $patched"
+
+          # 3. run_cmake.py: force the v145 toolset for configure (keeps
+          #    the whole build on one MSVC STL version; v143 libs vs
+          #    v145 codegen caused __std_* unresolved externals)
+          $r = "tdesktop\cmake\run_cmake.py"
+          $c = Get-Content $r -Raw
+          if ($c -notmatch "v145") {
+            $c = $c -replace "cmake\.append\('-T v143'\)", "cmake.append('-T v145')"
+            Set-Content $r $c -NoNewline
+          }
+          Select-String -Path $r -Pattern "v145|v143" | ForEach-Object { "run_cmake.py: $($_.Line.Trim())" }
 
       - name: Cache prepared libraries
         uses: actions/cache@v4
@@ -117,6 +130,10 @@ jobs:
           cd /d "%BUILD_ROOT%\tdesktop"
           cmake --build out --config Release --target Telegram -- -m:4 > "%BUILD_ROOT%\build_log.txt" 2>&1
           type "%BUILD_ROOT%\build_log.txt"
+          if not exist "out\AyuGram.exe" if not exist "out\Release\AyuGram.exe" (
+            echo FATAL: AyuGram.exe was not produced
+            exit /b 1
+          )
 
       - name: Upload build log
         if: always()
