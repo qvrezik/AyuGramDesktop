@@ -114,6 +114,10 @@ set(ayugram_files
         ayu/ayu_lang.h
         ayu/ayu_infra.cpp
         ayu/ayu_infra.h
+        ayu/plugins/plugin_manager.cpp
+        ayu/plugins/plugin_manager.h
+        ayu/plugins/plugin_engine.cpp
+        ayu/plugins/plugin_engine.h
         ayu/utils/ayu_mapper.cpp
         ayu/utils/ayu_mapper.h
         ayu/utils/qt_key_modifiers_extended.h
@@ -157,6 +161,8 @@ set(ayugram_files
         ayu/ui/settings/settings_main.h
         ayu/ui/settings/settings_other.cpp
         ayu/ui/settings/settings_other.h
+        ayu/ui/settings/settings_plugins.cpp
+        ayu/ui/settings/settings_plugins.h
         ayu/ui/settings/filters/settings_filters_list.cpp
         ayu/ui/settings/filters/settings_filters_list.h
         ayu/ui/settings/filters/per_dialog_filter.cpp

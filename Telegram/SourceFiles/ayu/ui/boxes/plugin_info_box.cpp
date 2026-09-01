@@ -7,6 +7,8 @@
 #include "ayu/ui/boxes/plugin_info_box.h"
 
 #include "apiwrap.h"
+#include "ayu/plugins/plugin_manager.h"
+#include "core/application.h"
 #include "core/file_utilities.h"
 #include "core/ui_integration.h"
 #include "data/data_document.h"
@@ -27,6 +29,7 @@
 #include "ui/painter.h"
 #include "ui/rect.h"
 #include "ui/vertical_list.h"
+#include "ui/boxes/confirm_box.h"
 #include "ui/layers/generic_box.h"
 #include "ui/text/text_utilities.h"
 #include "ui/widgets/buttons.h"
@@ -409,28 +412,71 @@ void FillPluginInfoBox(
 
 	Ui::AddSkip(box->verticalLayout());
 
-	box->verticalLayout()->add(
-		object_ptr<Ui::FlatLabel>(
-			box->verticalLayout(),
-			tr::ayu_PluginsNotAvailable(),
-			st::boxDividerLabel),
-		st::boxRowPadding);
+	const auto &manager = AyuPlugins::PluginManager::instance();
+	const auto installed = manager.byId(metadata.id);
+	const auto sameVersion = installed
+		&& (installed->version == metadata.version);
 
-	Ui::AddSkip(box->verticalLayout());
+	if (installed) {
+		box->verticalLayout()->add(
+			object_ptr<Ui::FlatLabel>(
+				box->verticalLayout(),
+				sameVersion
+					? tr::ayu_PluginInstalledLabel()
+					: tr::ayu_PluginUpdateAvailableLabel(),
+				st::boxDividerLabel),
+			st::boxRowPadding);
 
-	const auto closeButton = box->addButton(
-		tr::lng_close(),
-		[=] { box->closeBox(); });
+		Ui::AddSkip(box->verticalLayout());
+	}
+
+	const auto showRestartConfirm = [=] {
+		controller->show(Ui::MakeConfirmBox({
+			.text = tr::ayu_PluginRestartNeeded(tr::rich),
+			.confirmed = [=](Fn<void()> &&close) {
+				close();
+				Core::Restart();
+			},
+			.confirmText = tr::lng_settings_restart_now(),
+			.cancelText = tr::lng_settings_restart_later(),
+		}));
+	};
+
+	if (installed) {
+		const auto id = metadata.id;
+		box->addButton(
+			tr::ayu_PluginUninstall(),
+			[=] {
+				AyuPlugins::PluginManager::instance().uninstall(id);
+				box->closeBox();
+				controller->showToast(tr::ayu_PluginUninstalled(tr::now));
+			});
+	}
+
+	const auto installOrCloseButton = box->addButton(
+		installed
+			? tr::ayu_PluginUpdate()
+			: tr::ayu_PluginInstall(),
+		[=] {
+			if (!AyuPlugins::PluginManager::instance().install(
+					pluginPath,
+					metadata)) {
+				controller->showToast(tr::ayu_PluginInstallFailed(tr::now));
+				return;
+			}
+			box->closeBox();
+			showRestartConfirm();
+		});
 	const auto buttonWidth = box->width()
 		- rect::m::sum::h(st::starrefFooterBox.buttonPadding);
-	closeButton->widthValue() | rpl::filter([=]
+	installOrCloseButton->widthValue() | rpl::filter([=]
 	{
-		return (closeButton->widthNoMargins() != buttonWidth);
+		return (installOrCloseButton->widthNoMargins() != buttonWidth);
 	}) | rpl::on_next([=]
 					  {
-						  closeButton->resizeToWidth(buttonWidth);
+						  installOrCloseButton->resizeToWidth(buttonWidth);
 					  },
-					  closeButton->lifetime());
+					  installOrCloseButton->lifetime());
 }
 
 }
