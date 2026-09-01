@@ -1,0 +1,82 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+      - cloud-build
+      - plugin-engine
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: tdesktop
+
+      - name: Report disk space
+        shell: pwsh
+        run: |
+          Get-PSDrive -PSProvider FileSystem | ForEach-Object {
+            "{0}: free {1:N1} GB" -f $_.Name, ($_.Free/1GB)
+          }
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Prepare libraries (MSYS2, jom, gyp, Qt, deps)
+        shell: cmd
+        run: |
+          cd /d D:\
+          if not exist tbuild mkdir tbuild
+          cd tbuild
+          move /y ${{ github.workspace }}\tdesktop tdesktop
+          cd tdesktop
+          python Telegram\build\prepare\prepare.py silent
+        env:
+          PYTHONUTF8: '1'
+
+      - name: Configure
+        shell: cmd
+        run: |
+          cd /d D:\tbuild\tdesktop\Telegram
+          call configure.bat x64 -D TDESKTOP_API_ID=2040 -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627
+
+      - name: Build Telegram (Release)
+        shell: cmd
+        run: |
+          cd /d D:\tbuild\tdesktop
+          cmake --build out --config Release --target Telegram -- -m:4
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $out = "D:\tbuild\tdesktop\out\Release"
+          Get-ChildItem $out | ForEach-Object { $_.Name }
+          $staging = "D:\tbuild\package"
+          New-Item -ItemType Directory -Force $staging | Out-Null
+          # exe + dlls + everything except pdbs and objs
+          Get-ChildItem $out -File |
+            Where-Object { $_.Extension -notin ".pdb", ".obj", ".lib", ".exp" } |
+            Copy-Item -Destination $staging
+          Compress-Archive -Path "$staging\*" -DestinationPath D:\tbuild\AyuGram-win64.zip
+          "zip size: $((Get-Item D:\tbuild\AyuGram-win64.zip).Length / 1MB) MB"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AyuGram-win64
+          path: D:\tbuild\AyuGram-win64.zip
+          retention-days: 14
