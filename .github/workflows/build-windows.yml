@@ -24,12 +24,24 @@ jobs:
           submodules: recursive
           path: tdesktop
 
-      - name: Report disk space
+      - name: Pick build drive
         shell: pwsh
         run: |
           Get-PSDrive -PSProvider FileSystem | ForEach-Object {
             "{0}: free {1:N1} GB" -f $_.Name, ($_.Free/1GB)
           }
+          $best = Get-PSDrive -PSProvider FileSystem |
+            Where-Object { $_.Free -gt 40GB } |
+            Sort-Object Free -Descending |
+            Select-Object -First 1
+          if (-not $best) {
+            $best = Get-PSDrive -PSProvider FileSystem |
+              Sort-Object Free -Descending | Select-Object -First 1
+          }
+          $root = "$($best.Name):\tbuild"
+          New-Item -ItemType Directory -Force $root | Out-Null
+          "BUILD_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "Using $root"
 
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
@@ -39,11 +51,8 @@ jobs:
       - name: Prepare libraries (MSYS2, jom, gyp, Qt, deps)
         shell: cmd
         run: |
-          cd /d D:\
-          if not exist tbuild mkdir tbuild
-          cd tbuild
-          move /y ${{ github.workspace }}\tdesktop tdesktop
-          cd tdesktop
+          move /y "%GITHUB_WORKSPACE%\tdesktop" "%BUILD_ROOT%\tdesktop"
+          cd /d "%BUILD_ROOT%\tdesktop"
           python Telegram\build\prepare\prepare.py silent
         env:
           PYTHONUTF8: '1'
@@ -51,32 +60,32 @@ jobs:
       - name: Configure
         shell: cmd
         run: |
-          cd /d D:\tbuild\tdesktop\Telegram
+          cd /d "%BUILD_ROOT%\tdesktop\Telegram"
           call configure.bat x64 -D TDESKTOP_API_ID=2040 -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627
 
-      - name: Build Telegram (Release)
+      - name: Build AyuGram (Release)
         shell: cmd
         run: |
-          cd /d D:\tbuild\tdesktop
+          cd /d "%BUILD_ROOT%\tdesktop"
           cmake --build out --config Release --target Telegram -- -m:4
 
       - name: Package
         shell: pwsh
         run: |
-          $out = "D:\tbuild\tdesktop\out\Release"
-          Get-ChildItem $out | ForEach-Object { $_.Name }
-          $staging = "D:\tbuild\package"
+          $out = "$env:BUILD_ROOT\tdesktop\out\Release"
+          if (-not (Test-Path $out)) { throw "no output dir: $out" }
+          Get-ChildItem $out -File | ForEach-Object { $_.Name }
+          $staging = "$env:BUILD_ROOT\package"
           New-Item -ItemType Directory -Force $staging | Out-Null
-          # exe + dlls + everything except pdbs and objs
           Get-ChildItem $out -File |
             Where-Object { $_.Extension -notin ".pdb", ".obj", ".lib", ".exp" } |
             Copy-Item -Destination $staging
-          Compress-Archive -Path "$staging\*" -DestinationPath D:\tbuild\AyuGram-win64.zip
-          "zip size: $((Get-Item D:\tbuild\AyuGram-win64.zip).Length / 1MB) MB"
+          Compress-Archive -Path "$staging\*" -DestinationPath "$env:BUILD_ROOT\AyuGram-win64.zip"
+          "zip size: $([math]::Round((Get-Item "$env:BUILD_ROOT\AyuGram-win64.zip").Length / 1MB)) MB"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: AyuGram-win64
-          path: D:\tbuild\AyuGram-win64.zip
+          path: ${{ env.BUILD_ROOT }}\AyuGram-win64.zip
           retention-days: 14
