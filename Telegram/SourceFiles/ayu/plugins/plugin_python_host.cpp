@@ -318,14 +318,6 @@ bool invokeMenuCallback(
 	return false;
 }
 
-void releaseMenuCallbacks() {
-	menuCallbacksValid = false;
-	for (auto &entry : menuCallbacks) {
-		Py_XDECREF(entry.second);
-	}
-	menuCallbacks.clear();
-}
-
 } // namespace AyuPlugins
 
 // The entry point name is derived by the interpreter import machinery.

@@ -1138,7 +1138,7 @@ void AddPluginMessageActions(
 		const auto text = entry.text;
 		auto context = std::map<QString, QString>();
 		context[u"messageId"_q] = QString::number(item->id.bare);
-		context[u"messageText"_q] = item->text();
+		context[u"messageText"_q] = item->originalText().text;
 		context[u"dialogId"_q] = QString::number(
 			item->history()->peer->id.value);
 		const auto subtext = entry.subtext;

@@ -46,6 +46,9 @@ public:
 
 	std::vector<Loaded> loaded;
 
+	// Defined below - needs pythonErrorString()/callHook() helpers.
+	bool load(const InstalledPlugin &plugin, const QString &path);
+
 	~Impl() {
 		for (auto &entry : loaded) {
 			Py_XDECREF(entry.instance);
@@ -111,8 +114,7 @@ void callHook(PyObject *instance, const char *method) {
 	}
 }
 
-bool loadPlugin(
-		PluginEngine::Impl *impl,
+bool PluginEngine::Impl::load(
 		const InstalledPlugin &plugin,
 		const QString &path) {
 	QFile file(path);
@@ -209,7 +211,7 @@ bool loadPlugin(
 
 	callHook(instance, "on_plugin_load");
 
-	impl->loaded.push_back({ plugin.id, plugin.name, instance });
+	loaded.push_back({ plugin.id, plugin.name, instance });
 	LOG(("Plugins engine: loaded '%1' (%2)")
 		.arg(plugin.id, plugin.name));
 	return true;
@@ -283,7 +285,7 @@ void PluginEngine::initialize() {
 	for (const auto &plugin : enabled) {
 		const auto path = QDir(manager.pluginsDir()).filePath(
 			plugin.fileName);
-		if (loadPlugin(_impl, plugin, path)) {
+		if (_impl->load(plugin, path)) {
 			++loadedCount;
 		}
 	}
